@@ -1,0 +1,10 @@
+# Ignore the virtual environment folder
+venv/
+SkillBridgeAI-LangChain/venv/
+
+# Ignore compiled Python files
+*.pyc
+__pycache__/
+
+# Ignore environment variables file
+.env
