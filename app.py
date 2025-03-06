@@ -5,15 +5,8 @@ import base64
 import pdf2image
 from dotenv import load_dotenv
 import google.generativeai as genai
+from web_scraping import scrape_linkedin_job, get_gemini_response_part2
 
-def input_pdf_setup(uploaded_file):
-    with st.spinner("Processing PDF... Please wait ⏳"):
-        images = pdf2image.convert_from_bytes(
-            uploaded_file.read(), 
-            dpi=100, 
-            poppler_path="/usr/bin/"
-        )
-    return images
 load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
@@ -27,8 +20,21 @@ job_roles_skills = {
 
 def get_gemini_response(input_text, pdf_content, prompt):
     try:
+        # Add formatting instructions to all prompts
+        formatting_instructions = """
+        Format your response with:
+        - Use **bold text** for all headings and important points
+        - Use bullet points for lists
+        - Keep paragraphs short (2-3 sentences max)
+        - Use _italics_ for emphasis
+        - Include a brief summary at the top
+        - Use markdown formatting throughout
+        """
+        
+        enhanced_prompt = formatting_instructions + "\n\n" + prompt
+        
         model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content([input_text, pdf_content[0], prompt])
+        response = model.generate_content([input_text, pdf_content[0], enhanced_prompt])
         return response.text if response and hasattr(response, "text") else "Error: No response received."
     except Exception as e:
         return f"Error generating response: {str(e)}"
@@ -46,192 +52,342 @@ def input_pdf_setup(uploaded_file):
 # Streamlit App
 st.set_page_config(page_title="SkillBridgeAI", layout="wide")
 
-# Define color palette - dark theme with blue accents
-primary_blue = "#007BFF"         # Bright blue for primary actions
-secondary_blue = "#0056b3"       # Darker blue for secondary elements
-light_blue = "#e6f2ff"           # Very light blue for subtle highlights
-highlight_blue = "#3a7bd5"       # Medium-bright blue for highlights
-background_dark = "#121212"      # Very dark background (almost black)
-card_dark = "#1E1E1E"            # Slightly lighter dark for cards
-text_light = "#E0E0E0"           # Light gray for text
-text_muted = "#9E9E9E"           # Muted gray for secondary text
+# Initialize session state for theme
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'light'  # Default to light theme
 
-# Comprehensive styling for dark theme
+# Theme color definitions with enhanced light theme
+themes = {
+    'light': {
+        'primary_blue': "#0066cc",         # Slightly deeper blue for better contrast
+        'secondary_blue': "#0056b3",       # Darker blue for secondary elements
+        'light_blue': "#e6f2ff",           # Very light blue for subtle highlights
+        'highlight_blue': "#3a7bd5",       # Medium-bright blue for highlights
+        'background': "#f8f9fa",           # Light background
+        'card': "#ffffff",                 # White for cards
+        'card_border': "#e9ecef",          # Light gray border for cards
+        'text': "#212529",                 # Dark text
+        'text_muted': "#6c757d",           # Muted text
+        'input_bg': "#ffffff",             # White input background
+        'input_border': "#ced4da",         # Light gray input border
+        'success': "#28a745",              # Green for success messages
+        'warning': "#ffc107",              # Yellow for warnings
+        'divider': "rgba(0, 102, 204, 0.2)" # Transparent blue for divider
+    },
+    'dark': {
+        'primary_blue': "#007BFF",         # Bright blue for primary actions
+        'secondary_blue': "#0056b3",       # Darker blue for secondary elements
+        'light_blue': "#e6f2ff",           # Very light blue for subtle highlights
+        'highlight_blue': "#3a7bd5",       # Medium-bright blue for highlights
+        'background': "#121212",           # Very dark background
+        'card': "#1E1E1E",                 # Slightly lighter dark for cards
+        'card_border': "#333333",          # Dark gray border for cards
+        'text': "#E0E0E0",                 # Light gray for text
+        'text_muted': "#9E9E9E",           # Muted gray for secondary text
+        'input_bg': "#2d2d2d",             # Darker input background
+        'input_border': "#444444",         # Dark gray input border
+        'success': "#28a745",              # Green for success messages
+        'warning': "#ffc107",              # Yellow for warnings
+        'divider': "rgba(0, 123, 255, 0.3)" # Transparent blue for divider
+    }
+}
+
+# Theme toggle in sidebar with improved styling
+with st.sidebar:
+    st.title("Settings")
+    
+    # Custom CSS for the toggle
+    st.markdown("""
+    <style>
+    div[data-testid="stExpander"] {
+        border: none !important;
+        box-shadow: none !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Fixed theme toggle with better styling
+    theme_container = st.container()
+    with theme_container:
+        st.write("### Theme Selection")
+        
+        # Changed to two columns with better sizing and styling
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col1:
+            st.markdown("🌙")
+        with col2:
+            # Using selectbox instead of toggle for more reliable theme switching
+            selected_theme = st.selectbox(
+                "",
+                options=["Light", "Dark"],
+                index=0 if st.session_state.theme == 'light' else 1,
+                label_visibility="collapsed"
+            )
+            st.session_state.theme = selected_theme.lower()
+        with col3:
+            st.markdown("☀️")
+
+    st.markdown(f"<p style='color: {themes[st.session_state.theme]['primary_blue']}; font-weight: 500;'>Current: {st.session_state.theme.capitalize()} Mode</p>", unsafe_allow_html=True)
+
+# Get current theme colors
+theme = themes[st.session_state.theme]
+
+# Apply theme styling with improved light mode and file uploader
 st.markdown(f"""
     <style>
     /* Override Streamlit's default styling */
     .stApp {{
-        background-color: {background_dark};
-        color: {text_light};
+        background-color: {theme['background']};
+        color: {theme['text']};
     }}
     
     /* Main container */
     .main .block-container {{
         padding-top: 1rem;
         padding-bottom: 1rem;
-        background-color: {background_dark};
+        background-color: {theme['background']};
     }}
     
     /* Navbar */
     .navbar {{
-        background: linear-gradient(to right, {primary_blue}, {highlight_blue});
-        padding: 1.2rem;
+        background: linear-gradient(to right, {theme['primary_blue']}, {theme['highlight_blue']});
+        padding: 1.5rem;
         color: white;
-        font-size: 28px;
+        font-size: 30px;
         font-weight: bold;
         text-align: center;
-        border-radius: 4px;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        margin-bottom: 2rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }}
     
     /* Headers */
     h1, h2, h3, .stMarkdown p {{
-        color: {text_light};
+        color: {theme['text']};
     }}
     
     .section-header {{
-        color: {primary_blue};
+        color: {theme['primary_blue']};
         font-size: 22px;
         font-weight: 600;
         margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid {theme['divider']};
     }}
     
     /* Tabs */
     .stTabs [data-baseweb="tab-list"] {{
         gap: 2px;
-        background-color: {background_dark};
-        border-radius: 4px;
+        background-color: {theme['background']};
+        border-radius: 8px;
+        padding: 0.5rem;
+        border: 1px solid {theme['card_border']};
     }}
     
     .stTabs [data-baseweb="tab"] {{
-        background-color: {card_dark};
-        color: {text_light};
-        border-radius: 4px;
+        background-color: {theme['card']};
+        color: {theme['text']};
+        border-radius: 6px;
         padding: 8px 16px;
         font-weight: 500;
+        border: 1px solid {theme['card_border']};
     }}
     
     .stTabs [aria-selected="true"] {{
-        background-color: {primary_blue} !important;
+        background-color: {theme['primary_blue']} !important;
         color: white !important;
+        border: 1px solid {theme['primary_blue']} !important;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
     }}
     
     /* Buttons */
     .stButton button {{
-        background-color: {primary_blue};
+        background-color: {theme['primary_blue']};
         color: white;
-        border-radius: 4px;
-        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        padding: 0.5rem 1.2rem;
         font-weight: 600;
         border: none;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         transition: all 0.3s;
     }}
     
     .stButton button:hover {{
-        background-color: {highlight_blue};
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        background-color: {theme['highlight_blue']};
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
         transform: translateY(-2px);
     }}
     
-    /* File uploader */
-    .stFileUploader div {{
-        border: 2px dashed {highlight_blue};
-        padding: 15px;
-        border-radius: 4px;
-        background-color: {card_dark};
+    /* File uploader - Significantly improved for light mode */
+    .stFileUploader {{
+        margin-bottom: 0.75rem;
+    }}
+    
+    .stFileUploader > div {{
+        border: 2px dashed {theme['primary_blue']};
+        padding: 20px;
+        border-radius: 8px;
+        background-color: {theme['light_blue' if st.session_state.theme == 'light' else 'card']};
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+    }}
+    
+    .stFileUploader > div:hover {{
+        border-color: {theme['highlight_blue']};
     }}
     
     .stFileUploader button {{
-        background-color: {primary_blue};
+        background-color: {theme['primary_blue']};
         color: white;
+        border-radius: 6px;
+        font-weight: 500;
     }}
     
     /* Selectbox and Multiselect */
     .stSelectbox label, .stMultiSelect label, .stTextArea label {{
-        color: {primary_blue};
+        color: {theme['primary_blue']};
         font-weight: 500;
         font-size: 16px;
+        margin-bottom: 0.3rem;
     }}
     
     div[data-baseweb="select"] {{
-        background-color: {card_dark};
-        border-radius: 4px;
-        border-color: {highlight_blue};
-        color: {text_light};
+        background-color: {theme['input_bg']};
+        border-radius: 6px;
+        border: 1px solid {theme['input_border']};
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
     }}
     
     div[data-baseweb="select"] div {{
-        background-color: {card_dark};
-        color: {text_light};
+        background-color: {theme['input_bg']};
+        color: {theme['text']};
     }}
     
     div[data-baseweb="select"]:focus-within {{
-        border-color: {primary_blue};
+        border-color: {theme['primary_blue']};
         box-shadow: 0 0 0 2px rgba(58, 123, 213, 0.2);
     }}
     
     /* Input text areas */
     .stTextArea textarea {{
-        border-radius: 4px;
-        border-color: {highlight_blue};
-        background-color: {card_dark};
-        color: {text_light};
+        border-radius: 6px;
+        border: 1px solid {theme['input_border']};
+        background-color: {theme['input_bg']};
+        color: {theme['text']};
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
     }}
     
     .stTextArea textarea:focus {{
-        border-color: {primary_blue};
+        border-color: {theme['primary_blue']};
         box-shadow: 0 0 0 2px rgba(58, 123, 213, 0.2);
     }}
     
     /* Result containers */
     .result-container {{
-        background-color: {card_dark};
+        background-color: {theme['card']};
         padding: 1.5rem;
-        border-radius: 4px;
-        border-left: 4px solid {primary_blue};
+        border-radius: 8px;
+        border-left: 5px solid {theme['primary_blue']};
         margin-top: 1rem;
-        color: {text_light};
+        margin-bottom: 1rem;
+        color: {theme['text']};
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+    }}
+    
+    /* Enhanced styling for markdown content in results */
+    .result-container h1, 
+    .result-container h2, 
+    .result-container h3, 
+    .result-container h4 {{
+        color: {theme['primary_blue']};
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+    }}
+    
+    .result-container ul, 
+    .result-container ol {{
+        padding-left: 1.5rem;
+        margin-bottom: 1rem;
+    }}
+    
+    .result-container li {{
+        margin-bottom: 0.5rem;
+    }}
+    
+    .result-container strong {{
+        color: {theme['primary_blue']};
+        font-weight: 600;
+    }}
+    
+    .result-container p {{
+        margin-bottom: 0.75rem;
+        line-height: 1.6;
     }}
     
     /* Section dividers */
     .divider {{
-        height: 2px;
-        background: linear-gradient(to right, {background_dark}, {primary_blue}, {background_dark});
-        margin: 1.5rem 0;
-        border-radius: 1px;
+        height: 3px;
+        background: linear-gradient(to right, transparent, {theme['primary_blue']}, transparent);
+        margin: 2rem 0;
+        border-radius: 2px;
+        opacity: 0.7;
     }}
     
     /* Upload success indicator */
     .upload-success {{
-        background-color: rgba(0, 153, 77, 0.2);
-        color: #00cc66;
+        background-color: rgba(40, 167, 69, 0.1);
+        color: {theme['success']};
         padding: 0.75rem;
-        border-radius: 4px;
-        border-left: 4px solid #00cc66;
-        margin-top: 0.5rem;
+        border-radius: 6px;
+        border-left: 4px solid {theme['success']};
+        margin-top: 0.75rem;
+        display: flex;
+        align-items: center;
+        font-weight: 500;
+    }}
+    
+    .upload-success svg {{
+        margin-right: 0.5rem;
     }}
     
     /* Tab content container */
     .tab-content {{
-        padding: 1.5rem;
-        background-color: {card_dark};
-        border-radius: 4px;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-        margin-top: 0.5rem;
+        padding: 1.75rem;
+        background-color: {theme['card']};
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+        margin-top: 0.75rem;
+        border: 1px solid {theme['card_border']};
     }}
     
     /* Warning messages */
     .stAlert {{
-        background-color: {card_dark};
-        color: {text_light};
-        border-color: {highlight_blue};
+        background-color: {theme['card']};
+        color: {theme['text']};
+        border-color: {theme['highlight_blue']};
+        border-radius: 6px;
     }}
     
     /* Tooltip */
     .stTooltipIcon {{
-        color: {primary_blue};
+        color: {theme['primary_blue']};
+    }}
+    
+    /* File uploader text styling */
+    .uploadtext {{
+        color: {theme['text']};
+        text-align: center;
+        font-weight: 500;
+        margin-bottom: 10px;
+    }}
+    
+    /* Card container styling */
+    .card-container {{
+        background-color: {theme['card']};
+        border-radius: 8px;
+        padding: 1.5rem;
+        border: 1px solid {theme['card_border']};
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        height: 100%;
     }}
     </style>
 """, unsafe_allow_html=True)
@@ -244,6 +400,7 @@ col1, col2 = st.columns([1, 1])
 
 # Left Column - User Inputs
 with col1:
+    st.markdown("<div class='card-container'>", unsafe_allow_html=True)
     st.markdown("<p class='section-header'>Your Information</p>", unsafe_allow_html=True)
     
     expected_role = st.selectbox("Select Expected Job Role:", list(job_roles_skills.keys()))
@@ -251,18 +408,55 @@ with col1:
     skill_options = job_roles_skills.get(expected_role, [])
     skills = st.multiselect("Select Your Skills:", skill_options)
     
-    uploaded_file = st.file_uploader("Upload Your Resume (PDF)", type=["pdf"])
+    # Custom file uploader with better formatting
+    st.markdown("<p style='color: {}; font-weight: 500; font-size: 16px;'>Upload Your Resume</p>".format(theme['primary_blue']), unsafe_allow_html=True)
+    st.markdown("<div class='uploadtext'>PDF files only</div>", unsafe_allow_html=True)
+    uploaded_file = st.file_uploader("", type=["pdf"])
     
     if uploaded_file:
-        st.markdown("<div class='upload-success'>✅ PDF Uploaded Successfully</div>", unsafe_allow_html=True)
+        st.markdown("<div class='upload-success'>✅ Resume uploaded successfully</div>", unsafe_allow_html=True)
         pdf_content = input_pdf_setup(uploaded_file)
     else:
         pdf_content = None
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# Right Column - Job Description
-with col2:
+with st.container():
+    st.markdown("<div class='card-container'>", unsafe_allow_html=True)
     st.markdown("<p class='section-header'>Job Details</p>", unsafe_allow_html=True)
-    job_description = st.text_area("Enter Job Description:", height=345, help="Paste the job description to get more accurate analysis")
+
+    # Radio button to select input method
+    input_method = st.radio("Choose Input Method:", 
+                            ("Enter Manually", "Paste Job URL"))
+
+    job_description = ""
+
+    if input_method == "Enter Manually":
+        job_description = st.text_area("Enter Job Description:", height=305, 
+                                       help="Paste the job description to get more accurate analysis")
+    else:
+        job_url = st.text_input("Paste Job URL:", 
+                                help="Enter the URL of the job post to extract details automatically")
+
+        if st.button("Submit"):
+            if job_url:
+                with st.spinner("Fetching job details..."):
+                    # Scrape job details
+                    job_details = scrape_linkedin_job(job_url)
+
+                    if "error" in job_details:
+                        job_description = job_details["error"]
+                    else:
+                        # Process job details with Gemini AI
+                        job_description = get_gemini_response_part2(job_details)
+            else:
+                st.warning("Please enter a job URL.")
+
+    # Display the processed job description
+    st.text_area("Job Description:", job_description, height=305)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
 
 # Divider between inputs and results
 st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
@@ -298,13 +492,20 @@ with tab1:
             
             **Task**:
             Predict job role fit percentage and explain why the candidate is a good or bad fit for this role based on their skills and the job description.
+            
+            Begin with a clear overall summary showing the fit percentage. Then use sections with bold headings for:
+            1. Strengths
+            2. Areas for Improvement
+            3. Overall Assessment
+            
+            Keep your response concise and visually structured.
             """
             
             input_text = f"Job Role: {expected_role}\nJob Description: {job_description}"
-            response = get_gemini_response(input_text, [""], prompt)
+            response = get_gemini_response(input_text, pdf_content or [""], prompt)
             
             st.markdown("<div class='result-container'>", unsafe_allow_html=True)
-            st.write(response)
+            st.markdown(response, unsafe_allow_html=False)
             st.markdown("</div>", unsafe_allow_html=True)
         else:
             st.warning("Please select your skills.")
@@ -339,14 +540,21 @@ with tab2:
             - {', '.join(current_skills)}
             
             **Task**:
-            Analyze the importance of missing skills for this role. Explain which missing skills are most critical to acquire and why.
+            Analyze the importance of missing skills for this role.
+            
+            Begin with a brief summary, then create 3 clear categories:
+            1. **Critical Skills to Acquire** - Skills that are mandatory for the role
+            2. **Important Skills to Develop** - Skills that would significantly improve fit
+            3. **Nice-to-Have Skills** - Skills that would be beneficial but aren't essential
+            
+            For each skill, provide a brief 1-sentence explanation of its importance.
             """
             
             input_text = f"Job Role: {expected_role}\nJob Description: {job_description}"
-            response = get_gemini_response(input_text, [""], prompt)
+            response = get_gemini_response(input_text, pdf_content or [""], prompt)
             
             st.markdown("<div class='result-container'>", unsafe_allow_html=True)
-            st.write(response)
+            st.markdown(response, unsafe_allow_html=False)
             st.markdown("</div>", unsafe_allow_html=True)
         else:
             st.warning("Please select your skills.")
@@ -378,15 +586,24 @@ with tab3:
             
             **Task**:
             Recommend specific courses, learning resources, or training programs to help the candidate acquire the missing skills.
-            For each recommendation, provide the name of the course/resource, the platform (e.g., Coursera, Udemy, etc.), 
-            and a brief explanation of why it's beneficial.
+            
+            Start with a brief intro explaining the importance of these skills for the role.
+            
+            For each missing skill, provide ONE top recommendation in this format:
+            
+            **[Skill Name]**
+            - **Course:** [Name of course]
+            - **Platform:** [Platform name]
+            - **Why It's Valuable:** [1-sentence explanation]
+            
+            Prioritize the most critical skills to learn first. Keep recommendations specific rather than generic.
             """
             
             input_text = f"Job Role: {expected_role}\nJob Description: {job_description}"
-            response = get_gemini_response(input_text, [""], prompt)
+            response = get_gemini_response(input_text, pdf_content or [""], prompt)
             
             st.markdown("<div class='result-container'>", unsafe_allow_html=True)
-            st.write(response)
+            st.markdown(response, unsafe_allow_html=False)
             st.markdown("</div>", unsafe_allow_html=True)
         else:
             st.warning("Please select your skills.")
@@ -406,18 +623,30 @@ with tab4:
             **Job Description**: {job_description}
             
             **Task**:
-            Provide detailed feedback on how well the resume matches the job requirements. Include:
-            1. Overall impression of the resume
-            2. Strengths in relation to the job role
-            3. Areas for improvement
-            4. Specific suggestions to enhance the resume for this role
+            Provide concise, visual feedback on the resume using this structure:
+            
+            **Resume Score:** [X/10]
+            
+            **Strengths:**
+            • [Bullet point list of 3-4 key strengths]
+            
+            **Areas for Improvement:**
+            • [Bullet point list of 3-4 key improvements]
+            
+            **Quick Recommendations:**
+            • [3-5 specific, actionable suggestions]
+            
+            **Overall Assessment:**
+            [2-3 sentences with final verdict]
+            
+            Use bold for all headings and key terms. Keep each bullet point to 1-2 sentences maximum.
             """
             
             input_text = f"Job Role: {expected_role}\nJob Description: {job_description}"
             response = get_gemini_response(input_text, pdf_content, prompt)
             
             st.markdown("<div class='result-container'>", unsafe_allow_html=True)
-            st.write(response)
+            st.markdown(response, unsafe_allow_html=False)
             st.markdown("</div>", unsafe_allow_html=True)
         else:
             st.warning("Please upload a resume.")
@@ -435,22 +664,31 @@ with tab5:
             **Job Description**: {job_description}
             
             **Task**:
-            Evaluate the resume against the job role and provide a percentage match. 
-            Consider both the standard skills for this role and any specific requirements mentioned in the job description.
-            Break down the percentage into different categories:
-            1. Technical skills match
-            2. Experience level match
-            3. Education/certification match
-            4. Overall fit
+            Evaluate the resume against the job role and provide a percentage match.
             
-            Provide a single overall percentage at the beginning of your response, followed by the detailed breakdown.
+            Begin with a large, clear overall match percentage, then break it down into these categories:
+            
+            **Technical Skills:** [X%]
+            • Brief explanation of technical skills match
+            
+            **Experience:** [X%]
+            • Brief explanation of experience match
+            
+            **Education/Certifications:** [X%]
+            • Brief explanation of education match
+            
+            **Overall Assessment:**
+            [2-3 sentences with final recommendation]
+            
+            Use visual progress indicators with each percentage.
+            Keep explanations to 1-2 sentences each.
             """
             
             input_text = f"Job Role: {expected_role}\nJob Description: {job_description}"
             response = get_gemini_response(input_text, pdf_content, prompt)
             
             st.markdown("<div class='result-container'>", unsafe_allow_html=True)
-            st.write(response)
+            st.markdown(response, unsafe_allow_html=False)
             st.markdown("</div>", unsafe_allow_html=True)
         else:
             st.warning("Please upload a resume.")
