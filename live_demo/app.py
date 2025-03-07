@@ -431,10 +431,7 @@ with st.container():
 
     job_description = ""
 
-    if input_method == "Enter Manually":
-        job_description = st.text_area("Enter Job Description:", height=305, 
-                                       help="Paste the job description to get more accurate analysis")
-    else:
+    if input_method == "Paste Job URL":
         job_url = st.text_input("Paste Job URL:", 
                                 help="Enter the URL of the job post to extract details automatically")
 
