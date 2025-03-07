@@ -6,20 +6,22 @@ from groq import Groq
 from gtts import gTTS
 import wave
 from dotenv import load_dotenv
-
+from fastapi.staticfiles import StaticFiles
 import logging
 
 # Enable logging
 logging.basicConfig(level=logging.INFO)
 # Load API keys
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 genai.configure(api_key=GEMINI_API_KEY)
 client = Groq(api_key=GROQ_API_KEY)
 
 app = FastAPI()
+# Serve the static folder for audio files
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -59,7 +61,6 @@ def upload_audio(file: UploadFile = File(...)):
 
     return {"transcription": text, "feedback": feedback, "audio_file": "feedback.mp3"}
 
-
 @app.get("/speak_feedback/")
 def speak_feedback(text: str):
     if not text:
@@ -68,12 +69,12 @@ def speak_feedback(text: str):
 
     logging.info(f"Generating speech for: {text}")
 
-    filename = "feedback.mp3"
+    filename = "static/feedback.mp3"  # Save in static directory
     try:
         tts = gTTS(text)
         tts.save(filename)
         logging.info("Feedback audio saved as feedback.mp3")
-        return {"audio_file": filename}
+        return {"audio_file": "/static/feedback.mp3"}
     except Exception as e:
         logging.error(f"Error generating speech: {e}")
         return {"error": "Failed to generate speech"}
