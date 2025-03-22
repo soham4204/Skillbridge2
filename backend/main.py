@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # from fastapi import FastAPI, UploadFile, File, Form
 # from fastapi.middleware.cors import CORSMiddleware
 # import os
@@ -195,6 +196,9 @@
 #         return "I had trouble analyzing your response. Please try again with more details about your experience."
 
 from fastapi import FastAPI, UploadFile, File, Form
+=======
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+>>>>>>> 504bc6955ed86add220f536e5b25d3b3e7b6dcbd
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -209,13 +213,27 @@ import google.generativeai as genai
 from groq import Groq
 from gtts import gTTS
 from dotenv import load_dotenv
+<<<<<<< HEAD
 
 # ===== CONFIG AND SETUP =====
+=======
+from fastapi.staticfiles import StaticFiles
+import logging
+import cv2
+import numpy as np
+import insightface
+from insightface.app import FaceAnalysis
+from sklearn.metrics.pairwise import cosine_similarity
+>>>>>>> 504bc6955ed86add220f536e5b25d3b3e7b6dcbd
 
 # Enable logging
 logging.basicConfig(level=logging.INFO)
 
+<<<<<<< HEAD
 # Load environment variables
+=======
+# Load API keys
+>>>>>>> 504bc6955ed86add220f536e5b25d3b3e7b6dcbd
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -240,7 +258,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+<<<<<<< HEAD
 # ===== DATA MODELS =====
+=======
+# Initialize the ArcFace model
+face_analyzer = FaceAnalysis(name="buffalo_l")
+face_analyzer.prepare(ctx_id=-1)  # Use CPU (-1) or GPU (0, 1, ...)
+
+def get_embedding(image_data):
+    """Extracts face embedding from an image."""
+    image = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
+    faces = face_analyzer.get(image)
+    return faces[0].embedding if faces else None
+
+@app.post("/compare_faces/")
+async def compare_faces(image1: UploadFile = File(...), image2: UploadFile = File(...), threshold: float = 0.7):
+    try:
+        image1_data = np.frombuffer(await image1.read(), np.uint8)
+        image2_data = np.frombuffer(await image2.read(), np.uint8)
+
+        emb1, emb2 = get_embedding(image1_data), get_embedding(image2_data)
+
+        if emb1 is None or emb2 is None:
+            raise HTTPException(status_code=400, detail="Face not detected in one or both images.")
+
+        similarity = cosine_similarity([emb1], [emb2])[0][0]
+        is_match = similarity > threshold
+
+        return {"match": bool(is_match), "similarity_score": round(float(similarity), 2)}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+>>>>>>> 504bc6955ed86add220f536e5b25d3b3e7b6dcbd
 
 class QuestionRequest(BaseModel):
     skills: Optional[str] = None
@@ -254,6 +303,7 @@ class FinalAnalysisRequest(BaseModel):
 def analyze_response(text, skills=None, question=None):
     """Analyze an interview response using Gemini AI."""
     model = genai.GenerativeModel("gemini-1.5-flash")
+<<<<<<< HEAD
     
     skills_context = f"for the skill areas of {skills}" if skills else ""
     question_context = f"in response to the question: '{question}'" if question else ""
@@ -311,6 +361,11 @@ async def generate_question(request: QuestionRequest):
     except Exception as e:
         logging.error(f"Error generating question: {e}")
         return {"question": f"Tell me about your experience with {skills}."}
+=======
+    prompt = f"Generate a random interview-style question on Python, javascript, web dev, machine learning. And it should be readable for a person within 10 seconds"
+    response = model.generate_content(prompt)
+    return {"question": response.text.strip()}
+>>>>>>> 504bc6955ed86add220f536e5b25d3b3e7b6dcbd
 
 @app.post("/upload_audio/")
 async def upload_audio(
@@ -408,4 +463,28 @@ def speak_feedback(text: str):
         return {"audio_file": "/static/feedback.mp3"}
     except Exception as e:
         logging.error(f"Error generating speech: {e}")
+<<<<<<< HEAD
         return {"error": "Failed to generate speech"}
+=======
+        return {"error": "Failed to generate speech"}
+
+def analyze_confidence(text):
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    prompt = (
+        "Analyze this response for confidence, nervousness, hesitation, and emotional tone. "
+        "Give a confidence score from 0 to 100 and provide detailed feedback. "
+        "Ensure the response is at least 10 words long. "
+        "Use clear, natural sentences suitable for text-to-speech conversion.\n\n"
+        f"Response: {text}"
+    )
+    
+    try:
+        response = model.generate_content(prompt)
+        feedback = response.text.strip()
+        if not feedback:
+            return "I could not analyze the confidence of your response. Please try again."
+        return feedback
+    except Exception as e:
+        logging.error(f"Error analyzing confidence: {e}")
+        return "Error in confidence analysis."
+>>>>>>> 504bc6955ed86add220f536e5b25d3b3e7b6dcbd
